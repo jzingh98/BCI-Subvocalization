@@ -56,7 +56,7 @@ my_data = shrinkData
 
 # Isolate Y
 Y = my_data[:, 1]
-
+ 
 # Separate words
 lineIndex = 0
 currentWord = 2
