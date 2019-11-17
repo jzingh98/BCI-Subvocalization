@@ -7,7 +7,7 @@ from keras.models import Sequential
 from keras.layers import Dense, Conv2D, Flatten, Conv1D, Dropout, MaxPooling1D, GlobalAveragePooling1D
 from scipy.signal import butter, lfilter
 from sample import (butter_bandpass_filter)
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, roc_curve, auc
 from scipy.signal import butter, lfilter, iirnotch
 import matplotlib.pyplot as plt
 
@@ -56,7 +56,7 @@ my_data = shrinkData
 
 # Isolate Y
 Y = my_data[:, 1]
- 
+
 # Separate words
 lineIndex = 0
 currentWord = 2
@@ -91,6 +91,8 @@ answerDirectory = np_utils.to_categorical(answerDirectory)
 print(imageDirectory.shape)
 print(answerDirectory.shape)
 
+
+
 # Split to Training and Testing Set
 X_train, X_test, y_train, y_test = train_test_split(imageDirectory, answerDirectory, test_size=0.3)
 
@@ -98,6 +100,32 @@ print(X_train.shape)
 print(X_test.shape)
 print(y_train.shape)
 print(y_test.shape)
+
+
+# Generate Noise Added Images
+numImages, time, ch = X_train.shape
+mean = 0
+var = 0.12
+sigma = var**0.5
+gauss = np.random.normal(mean, sigma, (numImages, time, ch))
+gauss = gauss.reshape(numImages, time, ch)
+noisySet1 = X_train + gauss
+noisyY1 = y_train
+gauss = np.random.normal(mean, sigma, (numImages, time, ch))
+noisySet2 = X_train + gauss
+noisyY2 = y_train
+gauss = np.random.normal(mean, sigma, (numImages, time, ch))
+noisySet3 = X_train + gauss
+noisyY3 = y_train
+
+X_train = np.vstack((X_train, noisySet1, noisySet2, noisySet3))
+y_train = np.vstack((y_train, noisyY1, noisyY2, noisyY3))
+
+
+
+
+
+
 
 
 # Build Model
@@ -120,9 +148,12 @@ model.compile(loss='binary_crossentropy',
               optimizer='adam',
               metrics=['accuracy'])
 
-# Train Model
-model.fit(X_train, y_train, validation_data=(X_test, y_test), batch_size=100, epochs=500)
+from keras.utils import plot_model
+plot_model(model, show_shapes=True, show_layer_names= True, to_file='model.svg')
 
+
+# Train Model
+history = model.fit(X_train, y_train, validation_data=(X_test, y_test), batch_size=100, epochs=500)
 
 # CONSOLE TEST --------------------------------
 
@@ -151,11 +182,103 @@ resultsChart = np.vstack((classActual, classPredictions)).transpose()
 
 
 
-# # Print an image
-# X = imageDirectory[4, :, :]  # sample 2D array
-# print(X.shape)
-# plt.imshow(X, cmap="gray")
-# plt.savefig('demo.png', bbox_inches='tight')
+
+
+
+# Plot History
+# Plot training & validation accuracy values
+plt.plot(history.history['acc'])
+plt.plot(history.history['val_acc'])
+plt.title('Model accuracy')
+plt.ylabel('Accuracy')
+plt.xlabel('Epoch')
+plt.legend(['Train', 'Test'], loc='upper left')
+plt.savefig("acc.png")
+plt.clf()
+
+# Plot training & validation loss values
+plt.plot(history.history['loss'])
+plt.plot(history.history['val_loss'])
+plt.title('Model loss')
+plt.ylabel('Loss')
+plt.xlabel('Epoch')
+plt.legend(['Train', 'Test'], loc='upper left')
+plt.savefig("loss.png")
+plt.clf()
+
+
+
+
+
+
+# Calculate ROC
+fpr = dict()
+tpr = dict()
+roc_auc = dict()
+for i in range(2):
+    fpr[i], tpr[i], _ = roc_curve(y_test[:, i], y_predicted[:, i])
+    roc_auc[i] = auc(fpr[i], tpr[i])
+
+# Compute micro-average ROC curve and ROC area
+fpr["micro"], tpr["micro"], _ = roc_curve(y_test.ravel(), y_predicted.ravel())
+roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
+
+# Plot ROC
+plt.figure()
+lw = 2
+plt.plot(fpr[1], tpr[1], lw=lw, label='ROC curve (area = %0.2f)' % roc_auc[1])
+plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('Receiver operating characteristic example')
+plt.legend(loc="lower right")
+plt.savefig("roc.png")
+plt.clf()
+
+
+# Plot PR
+from sklearn.metrics import precision_recall_curve
+from sklearn.metrics import average_precision_score
+
+# For each class
+precision = dict()
+recall = dict()
+average_precision = dict()
+for i in range(2):
+    precision[i], recall[i], _ = precision_recall_curve(y_test[:, i],
+                                                        y_predicted[:, i])
+    average_precision[i] = average_precision_score(y_test[:, i], y_predicted[:, i])
+
+# A "micro-average": quantifying score on all classes jointly
+precision["micro"], recall["micro"], _ = precision_recall_curve(y_test.ravel(),
+    y_predicted.ravel())
+average_precision["micro"] = average_precision_score(y_test, y_predicted,
+                                                     average="micro")
+print('Average precision score, micro-averaged over all classes: {0:0.2f}'
+      .format(average_precision["micro"]))
+
+# Make PR PLOT
+plt.figure()
+plt.step(recall['micro'], precision['micro'], color='b', alpha=0.2,
+         where='post')
+plt.fill_between(recall["micro"], precision["micro"], alpha=0.2, color='b')
+
+plt.xlabel('Recall')
+plt.ylabel('Precision')
+plt.ylim([0.0, 1.05])
+plt.xlim([0.0, 1.0])
+plt.title(
+    'Average precision score, micro-averaged over all classes: AP={0:0.2f}'
+    .format(average_precision["micro"]))
+plt.savefig("pr.png")
+
+
+
+
+print("hello")
+exit(0)
 
 
 # Query
@@ -171,5 +294,10 @@ urlString = baseString + queryString
 webbrowser.open(urlString, new=2)
 
 
+# Print an image
+X = imageDirectory[4, :, :]  # sample 2D array
+print(X.shape)
+plt.imshow(X, cmap="gray")
+plt.savefig('demo.png', bbox_inches='tight')
 
 
